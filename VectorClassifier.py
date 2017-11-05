@@ -9,14 +9,16 @@ random.seed(a=123456789)
 np.random.seed(123456789)
 tf.set_random_seed(123456789)
 
-## Learning Model
+## Training Model
 class VectorClassifier:
-    # input image size
     read_threads = 1
 
-    def __init__(self, training_csv_file_name, batch_size, vector_size):
+    def __init__(self, training_csv_file_name, batch_size, vector_size, num_hidden_layer_node0, num_hidden_layer_node1):
         self.batch_size = batch_size
-        self.vector_size = vector_size;
+        self.vector_size = vector_size
+        # TODO:change argument to treat multiple hidden layers
+        self.num_hidden_layer_node0 = num_hidden_layer_node0
+        self.num_hidden_layer_node1 = num_hidden_layer_node1
         
         with tf.Graph().as_default():
             self.prepare_model()
@@ -36,17 +38,37 @@ class VectorClassifier:
             self.vector = vector
             self.keep_prob = keep_prob
 
+        # TODO:delegate model construction to other classes so that we can switch algorithms
+        # TODO:for-loop to dynamically create hidden layers from argument value
+        with tf.name_scope("hidden_layer0"):
+            w0 = tf.Variable(tf.truncated_normal([self.vector_size , self.num_hidden_layer_node0]))
+            b0 = tf.Variable(tf.zeros([self.num_hidden_layer_node0]))
+            hidden0 = tf.nn.relu(tf.matmul(self.vector, w0) + b0)
+
+        with tf.name_scope("hidden_layer1"):
+            w1 = tf.Variable(tf.truncated_normal([self.num_hidden_layer_node0 , self.num_hidden_layer_node1]))
+            b1 = tf.Variable(tf.zeros([self.num_hidden_layer_node1]))
+            hidden1 = tf.nn.relu(tf.matmul(hidden0, w1) + b1)
+
+        with tf.name_scope("output_layer"):
+            # vectors are classified into "2" groups
+            w2 = tf.Variable(tf.truncated_normal([self.num_hidden_layer_node1, 2]))
+            b2 = tf.Variable(tf.zeros([2]))
+            output = tf.matmul(hidden1, w2) + b2
+
+        with tf.name_scope("softmax"):
+            predicted = tf.nn.softmax(output, dim=1)
+
         with tf.name_scope("Optimize"):
-            # to be implemented
-            predicted = tf.Variable(1.0, dtype=tf.float32, expected_shape=[None, 1])
+            loss = tf.reduce_sum(tf.square(self.label-predicted[:,0]))
+            # cross entropy
+            #loss = - tf.reduce_sum(self.label * tf.log(predicted[:,0]))
+            train_step = tf.train.AdamOptimizer().minimize(loss)
 
-            #loss = tf.reduce_sum(tf.square(label-predicted))
-            loss = tf.constant(1.0, dtype=tf.float32)
-            train_step = tf.constant(1.0, dtype=tf.float32) # tf.train.AdamOptimizer(0.0005).minimize(loss)
+        tf.summary.scalar("loss", loss)
 
-        #tf.summary.scalar("loss", loss)
-        tf.summary.scalar("train_step", train_step)
-
+        self.output = output
+        self.predicted = predicted
         self.train_step = train_step
         self.predicted = predicted
         self.loss = loss
@@ -72,30 +94,14 @@ class VectorClassifier:
         key, record_string = reader.read(filename_queue)
 
         # construct "record_defaults" with "label" as the first column, and "vector" as the other ones
-        #record_default_vector = []
-        #for i in range(vector_size):
-        #    record_default_vector.append( 0.0 )
-
-        #record_defaults = [ [0.0], record_default_vector ]
-        #record_defaults = [[0.0], [ [0.0], [0.0], [0.0], [0.0] ] ]
-        #record_defaults = [[0.0], [ 0.0, 0.0, 0.0, 0.0 ] ]
-        #record_defaults = [[0.0], [0.0], [0.0], [0.0], [0.0]]
-
-        #record_defaults = [[0.0]]
-        #for i in range(vector_size):
-        #    record_defaults.append( [0.0] )
-
         record_defaults = [[tf.constant(0.0, dtype=tf.float32)]]
         for i in range(vector_size):
             record_defaults.append( [tf.constant(0.0, dtype=tf.float32)] )
 
         csv_row = tf.decode_csv(record_string, record_defaults)
-        label = csv_row[0:1]
-        vector = csv_row[1:]
-        return label, vector
-
-        #label, vector = tf.decode_csv(record_string, record_defaults)
-        #return label, vector
+        head = csv_row[0:1]
+        tail = csv_row[1:]
+        return head, tail
 
     def input_pipeline(self, filenames, batch_size, vector_size, read_threads, num_epochs=None):
         filename_queue = tf.train.string_input_producer(filenames, num_epochs=num_epochs, shuffle=True)
@@ -103,13 +109,13 @@ class VectorClassifier:
         capacity = min_after_dequeue + 3 * batch_size
 
         example_list = [self.read_my_file_format(filename_queue, vector_size) for _ in range(read_threads)]
-        label, vector = tf.train.shuffle_batch_join(
+        head, tail = tf.train.shuffle_batch_join(
             example_list, batch_size=batch_size, capacity=capacity,
             min_after_dequeue=min_after_dequeue)
-        return label, vector
+        return head, tail
 
     def prepare_batch(self, training_csv_file_name, vector_size):
-        label, vector = self.input_pipeline([training_csv_file_name], self.batch_size, vector_size, VectorClassifier.read_threads)
+        head, tail= self.input_pipeline([training_csv_file_name], self.batch_size, vector_size, VectorClassifier.read_threads)
         
-        self.label = label
-        self.vector = vector
+        self.row_head = head
+        self.row_tail = tail
