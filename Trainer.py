@@ -13,9 +13,12 @@ import VectorClassifier
 
 print("start")
 
-batch_size = 8
+# TODO:batch size can be more than 1
+batch_size = 1
 vector_size = 4
-vc = VectorClassifier.VectorClassifier('data/data01.csv', batch_size, vector_size)
+num_hidden_layer_node0 = 32
+num_hidden_layer_node1 = 16
+vc = VectorClassifier.VectorClassifier('data/data01.csv', batch_size, vector_size, num_hidden_layer_node0, num_hidden_layer_node1)
 coord = tf.train.Coordinator()
 threads = tf.train.start_queue_runners(coord=coord, sess=vc.sess)
 scaler = MinMaxScaler(feature_range=(0,1))
@@ -26,13 +29,13 @@ start = 0
 i = start
 
 # number of loops to report loss
-n_report_loss_loop = 2
+n_report_loss_loop = 500
 
-# number of loops to report summary and save session data while learning
-n_report_summary_and_save_session_loop = 10
+# number of loops to report summary and save session data while training
+n_report_summary_and_save_session_loop = 5000
 
-# number of all loops for learning
-n_all_loop = 20
+# number of all loops for training
+n_all_loop = 15000
 
 
 print("Start Training loop")
@@ -46,18 +49,28 @@ with vc.sess as sess:
         while not coord.should_stop():
             i += 1
             # Run training steps or whatever
-            label, vector = vc.sess.run([vc.label, vc.vector])
-            # print(vector) # debug
+            row_head, row_tail = vc.sess.run([vc.row_head, vc.row_tail])
+            # debug
+            #print(row_tail) 
 
             # vector = scaler.fit_transform(vector)
 
-            vc.sess.run([vc.train_step], feed_dict={vc.label:label, vc.vector:vector, vc.keep_prob:0.5})
+            vc.sess.run([vc.train_step], feed_dict={vc.label:row_head, vc.vector:row_tail, vc.keep_prob:0.5})
             if i == n_all_loop:
                 coord.request_stop()
 
             if i==start+1 or i % n_report_loss_loop == 0:
                 loss_vals = []
-                loss_val, summary = vc.sess.run([vc.loss, vc.summary], feed_dict={vc.label:label, vc.vector:vector, vc.keep_prob:1.0})
+                loss_val, summary = vc.sess.run([vc.loss, vc.summary], feed_dict={vc.label:row_head, vc.vector:row_tail, vc.keep_prob:1.0})
+
+                # debug
+                #loss_val, summary, predicted, output = vc.sess.run([vc.loss, vc.summary, vc.predicted, vc.output], feed_dict={vc.label:row_head, vc.vector:row_tail, vc.keep_prob:1.0})
+                #print(row_head)
+                #print(output)
+                #print(predicted)
+                #print(predicted[:,0])
+                #print(row_tail)
+                #print(row_head-predicted)
 
                 loss_vals.append(loss_val)
                 loss_val = np.sum(loss_vals)
